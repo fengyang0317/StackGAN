@@ -198,7 +198,7 @@ class CondGAN(object):
                                                weights_initializer=tf.random_normal_initializer(stddev=0.02), scope='fc')
                 context = tf.expand_dims(tf.expand_dims(context, 1), 1)
                 context = tf.tile(context, [1, 4, 4, 1])
-                net = tf.concat(3, [net1, context])
+                net = tf.concat([net1, context], axis=3)
 
                 net = slim.conv2d(net, self.df_dim * 8, 1, scope='net2')
                 net = slim.conv2d(net, 1, 4, padding='VALID', activation_fn=None, normalizer_fn=None, scope='output')

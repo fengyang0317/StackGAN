@@ -12,6 +12,7 @@ from stageI.model import CondGAN
 from stageI.trainer import CondGANTrainer
 from misc.utils import mkdir_p
 from misc.config import cfg, cfg_from_file
+import tensorflow as tf
 
 
 def parse_args():
@@ -28,7 +29,8 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-if __name__ == "__main__":
+
+def main(_):
     args = parse_args()
     if args.cfg_file is not None:
         cfg_from_file(args.cfg_file)
@@ -71,3 +73,7 @@ if __name__ == "__main__":
         training and test datasets, generate cfg.TRAIN.NUM_COPY
         images with randomness from noise z and conditioning augmentation.'''
         algo.evaluate()
+
+
+if __name__ == "__main__":
+    tf.app.run()

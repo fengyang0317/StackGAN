@@ -9,12 +9,23 @@ import os
 import sys
 from six.moves import range
 from progressbar import ETA, Bar, Percentage, ProgressBar
+import functools
 
 
 from misc.config import cfg
 from misc.utils import mkdir_p
 
 TINY = 1e-8
+
+tf.flags.DEFINE_integer('batch_size', 64, 'batch size')
+
+tf.flags.DEFINE_integer('crop_size', 64, 'crop size')
+
+tf.flags.DEFINE_string('data_dir', '/home/yfeng23/lab/StackGAN/Data/birds/CUB_200_2011/', 'data')
+
+tf.flags.DEFINE_integer('sample_num', 4, 'context sample num')
+
+FLAGS = tf.flags.FLAGS
 
 
 # reduce_mean normalize also the dimension of the embeddings
@@ -98,7 +109,7 @@ class CondGANTrainer(object):
                 z = tf.random_normal([self.batch_size, cfg.Z_DIM])
                 self.log_vars.append(("hist_c", c))
                 self.log_vars.append(("hist_z", z))
-                fake_images = self.model.get_generator(tf.concat(1, [c, z]))
+                fake_images = self.model.get_generator(tf.concat([c, z], axis=1))
 
             # ####get discriminator_loss and generator_loss ###################
             discriminator_loss, generator_loss =\
@@ -128,7 +139,7 @@ class CondGANTrainer(object):
             z = tf.zeros([self.batch_size, cfg.Z_DIM])  # Expect similar BGs
         else:
             z = tf.random_normal([self.batch_size, cfg.Z_DIM])
-        self.fake_images = self.model.get_generator(tf.concat(1, [c, z]))
+        self.fake_images = self.model.get_generator(tf.concat([c, z], axis=1))
 
     def compute_losses(self, images, wrong_images, fake_images, embeddings):
         with tf.variable_scope('discriminator') as vs:
@@ -138,16 +149,16 @@ class CondGANTrainer(object):
             fake_logit = self.model.get_discriminator(fake_images, embeddings)
 
         real_d_loss =\
-            tf.nn.sigmoid_cross_entropy_with_logits(real_logit,
-                                                    tf.ones_like(real_logit))
+            tf.nn.sigmoid_cross_entropy_with_logits(logits=real_logit,
+                                                    labels=tf.ones_like(real_logit))
         real_d_loss = tf.reduce_mean(real_d_loss)
         wrong_d_loss =\
-            tf.nn.sigmoid_cross_entropy_with_logits(wrong_logit,
-                                                    tf.zeros_like(wrong_logit))
+            tf.nn.sigmoid_cross_entropy_with_logits(logits=wrong_logit,
+                                                    labels=tf.zeros_like(wrong_logit))
         wrong_d_loss = tf.reduce_mean(wrong_d_loss)
         fake_d_loss =\
-            tf.nn.sigmoid_cross_entropy_with_logits(fake_logit,
-                                                    tf.zeros_like(fake_logit))
+            tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit,
+                                                    labels=tf.zeros_like(fake_logit))
         fake_d_loss = tf.reduce_mean(fake_d_loss)
         if cfg.TRAIN.B_WRONG:
             discriminator_loss =\
@@ -159,8 +170,8 @@ class CondGANTrainer(object):
         self.log_vars.append(("d_loss_fake", fake_d_loss))
 
         generator_loss = \
-            tf.nn.sigmoid_cross_entropy_with_logits(fake_logit,
-                                                    tf.ones_like(fake_logit))
+            tf.nn.sigmoid_cross_entropy_with_logits(logits=fake_logit,
+                                                    labels=tf.ones_like(fake_logit))
         generator_loss = tf.reduce_mean(generator_loss)
 
         return discriminator_loss, generator_loss
@@ -200,18 +211,18 @@ class CondGANTrainer(object):
         all_sum = {'g': [], 'd': [], 'hist': []}
         for k, v in self.log_vars:
             if k.startswith('g'):
-                all_sum['g'].append(tf.scalar_summary(k, v))
+                all_sum['g'].append(tf.summary.scalar(k, v))
             elif k.startswith('d'):
-                all_sum['d'].append(tf.scalar_summary(k, v))
+                all_sum['d'].append(tf.summary.scalar(k, v))
             elif k.startswith('hist'):
-                all_sum['hist'].append(tf.histogram_summary(k, v))
+                all_sum['hist'].append(tf.summary.histogram(k, v))
 
-        self.g_sum = tf.merge_summary(all_sum['g'])
-        self.d_sum = tf.merge_summary(all_sum['d'])
-        self.hist_sum = tf.merge_summary(all_sum['hist'])
+        self.g_sum = tf.summary.merge(all_sum['g'])
+        self.d_sum = tf.summary.merge(all_sum['d'])
+        self.hist_sum = tf.summary.merge(all_sum['hist'])
 
         all_sum = [tf.summary.histogram(variable.op.name, variable) for variable in tf.global_variables()]
-        self.all_sum = tf.merge_summary(all_sum)
+        self.all_sum = tf.summary.merge(all_sum)
 
     def visualize_one_superimage(self, img_var, images, rows, filename):
         stacked_img = []
@@ -221,9 +232,9 @@ class CondGANTrainer(object):
             for col in range(rows):
                 row_img.append(img_var[row * rows + col, :, :, :])
             # each rows is 1realimage +10_fakeimage
-            stacked_img.append(tf.concat(1, row_img))
-        imgs = tf.expand_dims(tf.concat(0, stacked_img), 0)
-        current_img_summary = tf.image_summary(filename, imgs)
+            stacked_img.append(tf.concat(row_img, axis=1))
+        imgs = tf.expand_dims(tf.concat(stacked_img, axis=0), 0)
+        current_img_summary = tf.summary.image(filename, imgs)
         return current_img_summary, imgs
 
     def visualization(self, n):
@@ -235,8 +246,8 @@ class CondGANTrainer(object):
             self.visualize_one_superimage(self.fake_images[n * n:2 * n * n],
                                           self.images[n * n:2 * n * n],
                                           n, "test")
-        self.superimages = tf.concat(0, [superimage_train, superimage_test])
-        self.image_summary = tf.merge_summary([fake_sum_train, fake_sum_test])
+        self.superimages = tf.concat([superimage_train, superimage_test], axis=0)
+        self.image_summary = tf.summary.merge([fake_sum_train, fake_sum_test])
 
     def preprocess(self, x, n):
         # make sure every row with n column have the same embeddings
@@ -312,6 +323,7 @@ class CondGANTrainer(object):
 
     def train(self):
         config = tf.ConfigProto(allow_soft_placement=True)
+        op1, op2, op3, _ = train_input_fn(FLAGS.data_dir)
         with tf.Session(config=config) as sess:
             with tf.device("/gpu:%d" % cfg.GPU_ID):
                 counter = self.build_model(sess)
@@ -319,7 +331,7 @@ class CondGANTrainer(object):
                                        keep_checkpoint_every_n_hours=2)
 
                 # summary_op = tf.merge_all_summaries()
-                summary_writer = tf.train.SummaryWriter(self.log_dir,
+                summary_writer = tf.summary.FileWriter(self.log_dir,
                                                         sess.graph)
 
                 keys = ["d_loss", "g_loss"]
@@ -352,9 +364,10 @@ class CondGANTrainer(object):
                     for i in range(updates_per_epoch):
                         pbar.update(i)
                         # training d
-                        images, wrong_images, embeddings, _, _ =\
-                            self.dataset.train.next_batch(self.batch_size,
-                                                          num_embedding)
+                        # images, wrong_images, embeddings, _, _ =\
+                        #     self.dataset.train.next_batch(self.batch_size,
+                        #                                   num_embedding)
+                        images, wrong_images, embeddings = sess.run([op1, op2, op3])
                         feed_dict = {self.images: images,
                                      self.wrong_images: wrong_images,
                                      self.embeddings: embeddings,
@@ -468,3 +481,58 @@ class CondGANTrainer(object):
                                           self.log_dir, subset='test')
                 else:
                     print("Input a valid model path.")
+
+
+def split(line):
+    sp = tf.string_split([line], delimiter=',')
+    name = sp.values[0]
+    label = sp.values[1]
+    label = tf.string_to_number(label, out_type=tf.int32)
+    return name, label
+
+
+def read_img(t1, t2, data_dir):
+    def imread(im_path):
+        img = tf.read_file(tf.string_join([data_dir, 'lr_imgs/', im_path, '.png']))
+        img = tf.image.decode_png(img, 3)
+        img = tf.random_crop(img, [FLAGS.crop_size, FLAGS.crop_size, 3])
+        img = tf.image.random_flip_left_right(img)
+        img = tf.image.convert_image_dtype(img, tf.float32)
+        img = img * 2 - 1
+        return img
+    correct = imread(t1[0])
+    wrong = imread(t2[0])
+    return correct, wrong, t1[0], t1[1]
+
+
+def read_sen(correct, wrong, n1, l1, data_dir):
+    context = np.load(data_dir + 'sentence/' + n1 + '.npy')
+    idx = np.random.choice(context.shape[0], FLAGS.sample_num, replace=False)
+    context = np.mean(context[idx], axis=0)
+    return correct, wrong, context, l1
+
+
+def resize_img(correct, wrong, context, label):
+    correct.set_shape([FLAGS.batch_size, FLAGS.crop_size, FLAGS.crop_size, 3])
+    wrong.set_shape([FLAGS.batch_size, FLAGS.crop_size, FLAGS.crop_size, 3])
+    context.set_shape([FLAGS.batch_size, 1024])
+    label.set_shape(FLAGS.batch_size)
+    return correct, wrong, context, label
+
+
+def train_input_fn(data_dir, subset='train'):
+    dataset = tf.data.TextLineDataset(tf.string_join([data_dir, 'my', subset, '.txt']))
+    dataset = dataset.repeat()
+    dataset = dataset.shuffle(2000)
+    dataset = dataset.map(split)
+    dataset = tf.data.Dataset.zip((dataset, dataset))
+    dataset = dataset.filter(lambda t1, t2: tf.not_equal(t1[1], t2[1]))
+    dataset = dataset.map(functools.partial(read_img, data_dir=data_dir), num_parallel_calls=8)
+    dataset = dataset.map(lambda c, w, n, l: tuple(tf.py_func(read_sen, [c, w, n, l, data_dir], [tf.float32, tf.float32, tf.float32, tf.int32])),
+                          num_parallel_calls=8)
+    dataset = dataset.batch(FLAGS.batch_size)
+    dataset = dataset.map(resize_img)
+    dataset = dataset.prefetch(4)
+    iterator = dataset.make_one_shot_iterator()
+    correct, wrong, context, targets = iterator.get_next()
+    return correct, wrong, context, targets
