@@ -181,11 +181,32 @@ class CondGAN(object):
         return template
 
     def get_discriminator(self, x_var, c_var):
-        x_code = self.d_encode_img_template.construct(input=x_var)
+        with slim.arg_scope([slim.batch_norm], decay=0.9, epsilon=1e-5, is_training=True):
+            with slim.arg_scope([slim.conv2d], activation_fn=leaky_relu, normalizer_fn=slim.batch_norm,
+                                weights_initializer=tf.truncated_normal_initializer(stddev=0.02),
+                                biases_initializer=None):
+                net10 = slim.conv2d(x_var, self.df_dim, 4, stride=2, normalizer_fn=None, scope='net10_1')
+                net10 = slim.conv2d(net10, self.df_dim * 2, 4, stride=2, scope='net10_2')
+                net10 = slim.conv2d(net10, self.df_dim * 4, 4, stride=2, activation_fn=None, scope='net10_3')
+                net10 = slim.conv2d(net10, self.df_dim * 8, 4, stride=2, activation_fn=None, scope='net10_4')
+                net11 = slim.conv2d(net10, self.df_dim * 2, 1, scope='net11_1')
+                net11 = slim.conv2d(net11, self.df_dim * 2, 3, scope='net11_2')
+                net11 = slim.conv2d(net11, self.df_dim * 8, 3, scope='net11_3')
+                net1 = leaky_relu(net10 + net11)
 
-        c_code = self.d_context_template.construct(input=c_var)
-        c_code = tf.expand_dims(tf.expand_dims(c_code, 1), 1)
-        c_code = tf.tile(c_code, [1, self.s16, self.s16, 1])
+                context = slim.fully_connected(c_var, self.ef_dim, activation_fn=leaky_relu,
+                                               weights_initializer=tf.random_normal_initializer(stddev=0.02), scope='fc')
+                context = tf.expand_dims(tf.expand_dims(context, 1), 1)
+                context = tf.tile(context, [1, 4, 4, 1])
+                net = tf.concat(3, [net1, context])
 
-        x_c_code = tf.concat(3, [x_code, c_code])
-        return self.discriminator_template.construct(input=x_c_code)
+                net = slim.conv2d(net, self.df_dim * 8, 1, scope='net2')
+                net = slim.conv2d(net, 1, 4, padding='VALID', activation_fn=None, normalizer_fn=None, scope='output')
+                net = tf.squeeze(net, [1, 2])
+                return net
+
+def leaky_relu(x, leakiness=0.2):
+  assert leakiness <= 1
+  ret = tf.maximum(x, leakiness * x)
+  # import ipdb; ipdb.set_trace()
+  return ret

@@ -131,9 +131,11 @@ class CondGANTrainer(object):
         self.fake_images = self.model.get_generator(tf.concat(1, [c, z]))
 
     def compute_losses(self, images, wrong_images, fake_images, embeddings):
-        real_logit = self.model.get_discriminator(images, embeddings)
-        wrong_logit = self.model.get_discriminator(wrong_images, embeddings)
-        fake_logit = self.model.get_discriminator(fake_images, embeddings)
+        with tf.variable_scope('discriminator') as vs:
+            real_logit = self.model.get_discriminator(images, embeddings)
+            vs.reuse_variables()
+            wrong_logit = self.model.get_discriminator(wrong_images, embeddings)
+            fake_logit = self.model.get_discriminator(fake_images, embeddings)
 
         real_d_loss =\
             tf.nn.sigmoid_cross_entropy_with_logits(real_logit,
@@ -170,7 +172,7 @@ class CondGANTrainer(object):
         g_vars = [var for var in all_vars if
                   var.name.startswith('g_')]
         d_vars = [var for var in all_vars if
-                  var.name.startswith('d_')]
+                  var.name.startswith('dis')]
 
         generator_opt = tf.train.AdamOptimizer(self.generator_lr,
                                                beta1=0.5)
@@ -183,10 +185,13 @@ class CondGANTrainer(object):
                                    var_list=g_vars)
         discriminator_opt = tf.train.AdamOptimizer(self.discriminator_lr,
                                                    beta1=0.5)
-        self.discriminator_trainer =\
-            pt.apply_optimizer(discriminator_opt,
-                               losses=[discriminator_loss],
-                               var_list=d_vars)
+
+        dis_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, 'discriminator')
+        with tf.control_dependencies(dis_update_ops):
+            self.discriminator_trainer =\
+                pt.apply_optimizer(discriminator_opt,
+                                   losses=[discriminator_loss],
+                                   var_list=d_vars)
         self.log_vars.append(("g_learning_rate", self.generator_lr))
         self.log_vars.append(("d_learning_rate", self.discriminator_lr))
 
