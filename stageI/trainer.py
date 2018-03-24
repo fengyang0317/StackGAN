@@ -174,10 +174,13 @@ class CondGANTrainer(object):
 
         generator_opt = tf.train.AdamOptimizer(self.generator_lr,
                                                beta1=0.5)
-        self.generator_trainer =\
-            pt.apply_optimizer(generator_opt,
-                               losses=[generator_loss],
-                               var_list=g_vars)
+
+        gen_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, 'g_net')
+        with tf.control_dependencies(gen_update_ops):
+            self.generator_trainer =\
+                pt.apply_optimizer(generator_opt,
+                                   losses=[generator_loss],
+                                   var_list=g_vars)
         discriminator_opt = tf.train.AdamOptimizer(self.discriminator_lr,
                                                    beta1=0.5)
         self.discriminator_trainer =\

@@ -6,6 +6,7 @@ import tensorflow as tf
 import misc.custom_ops
 from misc.custom_ops import leaky_rectify
 from misc.config import cfg
+import tensorflow.contrib.slim as slim
 
 
 class CondGAN(object):
@@ -51,65 +52,31 @@ class CondGAN(object):
         return [mean, log_sigma]
 
     def generator(self, z_var):
-        node1_0 =\
-            (pt.wrap(z_var).
-             flatten().
-             custom_fully_connected(self.s16 * self.s16 * self.gf_dim * 8).
-             fc_batch_norm().
-             reshape([-1, self.s16, self.s16, self.gf_dim * 8]))
-        node1_1 = \
-            (node1_0.
-             custom_conv2d(self.gf_dim * 2, k_h=1, k_w=1, d_h=1, d_w=1).
-             conv_batch_norm().
-             apply(tf.nn.relu).
-             custom_conv2d(self.gf_dim * 2, k_h=3, k_w=3, d_h=1, d_w=1).
-             conv_batch_norm().
-             apply(tf.nn.relu).
-             custom_conv2d(self.gf_dim * 8, k_h=3, k_w=3, d_h=1, d_w=1).
-             conv_batch_norm())
-        node1 = \
-            (node1_0.
-             apply(tf.add, node1_1).
-             apply(tf.nn.relu))
-
-        node2_0 = \
-            (node1.
-             # custom_deconv2d([0, self.s8, self.s8, self.gf_dim * 4], k_h=4, k_w=4).
-             apply(tf.image.resize_nearest_neighbor, [self.s8, self.s8]).
-             custom_conv2d(self.gf_dim * 4, k_h=3, k_w=3, d_h=1, d_w=1).
-             conv_batch_norm())
-        node2_1 = \
-            (node2_0.
-             custom_conv2d(self.gf_dim * 1, k_h=1, k_w=1, d_h=1, d_w=1).
-             conv_batch_norm().
-             apply(tf.nn.relu).
-             custom_conv2d(self.gf_dim * 1, k_h=3, k_w=3, d_h=1, d_w=1).
-             conv_batch_norm().
-             apply(tf.nn.relu).
-             custom_conv2d(self.gf_dim * 4, k_h=3, k_w=3, d_h=1, d_w=1).
-             conv_batch_norm())
-        node2 = \
-            (node2_0.
-             apply(tf.add, node2_1).
-             apply(tf.nn.relu))
-
-        output_tensor = \
-            (node2.
-             # custom_deconv2d([0, self.s4, self.s4, self.gf_dim * 2], k_h=4, k_w=4).
-             apply(tf.image.resize_nearest_neighbor, [self.s4, self.s4]).
-             custom_conv2d(self.gf_dim * 2, k_h=3, k_w=3, d_h=1, d_w=1).
-             conv_batch_norm().
-             apply(tf.nn.relu).
-             # custom_deconv2d([0, self.s2, self.s2, self.gf_dim], k_h=4, k_w=4).
-             apply(tf.image.resize_nearest_neighbor, [self.s2, self.s2]).
-             custom_conv2d(self.gf_dim, k_h=3, k_w=3, d_h=1, d_w=1).
-             conv_batch_norm().
-             apply(tf.nn.relu).
-             # custom_deconv2d([0] + list(self.image_shape), k_h=4, k_w=4).
-             apply(tf.image.resize_nearest_neighbor, [self.s, self.s]).
-             custom_conv2d(3, k_h=3, k_w=3, d_h=1, d_w=1).
-             apply(tf.nn.tanh))
-        return output_tensor
+        with slim.arg_scope([slim.batch_norm], decay=0.9, epsilon=1e-5, is_training=True):
+            with slim.arg_scope([slim.conv2d], normalizer_fn=slim.batch_norm,
+                                weights_initializer=tf.truncated_normal_initializer(stddev=0.02),
+                                biases_initializer=None):
+                net10 = slim.fully_connected(z_var, 4 * 4 * self.gf_dim * 8, activation_fn=None, scope='net10',
+                                             weights_initializer=tf.random_normal_initializer(stddev=0.02),
+                                             normalizer_fn=slim.batch_norm)
+                net10 = tf.reshape(net10, [-1, 4, 4, self.gf_dim * 8])
+                net11 = slim.conv2d(net10, self.gf_dim * 2, 1, scope='net11_1')
+                net11 = slim.conv2d(net11, self.gf_dim * 2, 3, scope='net11_2')
+                net11 = slim.conv2d(net11, self.gf_dim * 8, 3, activation_fn=None, scope='net11_3')
+                net1 = tf.nn.relu(net10 + net11)
+                net20 = tf.image.resize_nearest_neighbor(net1, [8, 8])
+                net20 = slim.conv2d(net20, self.gf_dim * 4, 3, activation_fn=None, scope='net20')
+                net21 = slim.conv2d(net20, self.gf_dim, 1, scope='net21_1')
+                net21 = slim.conv2d(net21, self.gf_dim, 3, scope='net21_2')
+                net21 = slim.conv2d(net21, self.gf_dim * 4, 3, activation_fn=None, scope='net21_3')
+                net2 = tf.nn.relu(net20 + net21)
+                net = tf.image.resize_nearest_neighbor(net2, [16, 16])
+                net = slim.conv2d(net, self.gf_dim * 2, 3, scope='net3_1')
+                net = tf.image.resize_nearest_neighbor(net, [32, 32])
+                net = slim.conv2d(net, self.gf_dim, 3, scope='net3_2')
+                net = tf.image.resize_nearest_neighbor(net, [64, 64])
+                net = slim.conv2d(net, 3, 3, activation_fn=tf.tanh, normalizer_fn=None, scope='output')
+                return net
 
     def generator_simple(self, z_var):
         output_tensor =\
