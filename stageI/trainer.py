@@ -205,6 +205,9 @@ class CondGANTrainer(object):
         self.d_sum = tf.merge_summary(all_sum['d'])
         self.hist_sum = tf.merge_summary(all_sum['hist'])
 
+        all_sum = [tf.summary.histogram(variable.op.name, variable) for variable in tf.global_variables()]
+        self.all_sum = tf.merge_summary(all_sum)
+
     def visualize_one_superimage(self, img_var, images, rows, filename):
         stacked_img = []
         for row in range(rows):
@@ -354,21 +357,28 @@ class CondGANTrainer(object):
                                      self.discriminator_lr: discriminator_lr
                                      }
                         # train d
-                        feed_out = [self.discriminator_trainer,
-                                    self.d_sum,
-                                    self.hist_sum,
-                                    log_vars]
-                        _, d_sum, hist_sum, log_vals = sess.run(feed_out,
-                                                                feed_dict)
-                        summary_writer.add_summary(d_sum, counter)
-                        summary_writer.add_summary(hist_sum, counter)
-                        all_log_vals.append(log_vals)
+                        if i % 100 == 0 and i != 0:
+                            feed_out = [self.discriminator_trainer,
+                                        self.d_sum,
+                                        self.hist_sum,
+                                        log_vars]
+                            _, d_sum, hist_sum, log_vals = sess.run(feed_out,
+                                                                    feed_dict)
+                            summary_writer.add_summary(d_sum, counter)
+                            summary_writer.add_summary(hist_sum, counter)
+                            all_log_vals.append(log_vals)
+                        else:
+                            sess.run(self.discriminator_trainer, feed_dict)
                         # train g
-                        feed_out = [self.generator_trainer,
-                                    self.g_sum]
-                        _, g_sum = sess.run(feed_out,
-                                            feed_dict)
-                        summary_writer.add_summary(g_sum, counter)
+                        if i % 100 == 0 and i != 0:
+                            feed_out = [self.generator_trainer,
+                                        self.g_sum, self.all_sum]
+                            _, g_sum, all_sum = sess.run(feed_out,
+                                                feed_dict)
+                            summary_writer.add_summary(g_sum, counter)
+                            summary_writer.add_summary(all_sum, counter)
+                        else:
+                            sess.run(self.generator_trainer, feed_dict)
                         # save checkpoint
                         counter += 1
                         if counter % self.snapshot_interval == 0:
