@@ -21,7 +21,7 @@ tf.flags.DEFINE_integer('batch_size', 64, 'batch size')
 
 tf.flags.DEFINE_integer('crop_size', 64, 'crop size')
 
-tf.flags.DEFINE_string('data_dir', '/home/yfeng23/lab/StackGAN/Data/birds/CUB_200_2011/', 'data')
+tf.flags.DEFINE_string('data_dir', 'Data/birds/CUB_200_2011/', 'data')
 
 tf.flags.DEFINE_integer('sample_num', 4, 'context sample num')
 
@@ -189,20 +189,17 @@ class CondGANTrainer(object):
                                                beta1=0.5)
 
         gen_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, 'g_net')
+        grads = generator_opt.compute_gradients(generator_loss, g_vars)
         with tf.control_dependencies(gen_update_ops):
-            self.generator_trainer =\
-                pt.apply_optimizer(generator_opt,
-                                   losses=[generator_loss],
-                                   var_list=g_vars)
+            self.generator_trainer = generator_opt.apply_gradients(grads)
         discriminator_opt = tf.train.AdamOptimizer(self.discriminator_lr,
                                                    beta1=0.5)
 
         dis_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, 'discriminator')
+        grads = generator_opt.compute_gradients(discriminator_loss, d_vars)
         with tf.control_dependencies(dis_update_ops):
-            self.discriminator_trainer =\
-                pt.apply_optimizer(discriminator_opt,
-                                   losses=[discriminator_loss],
-                                   var_list=d_vars)
+            self.discriminator_trainer = discriminator_opt.apply_gradients(grads)
+
         self.log_vars.append(("g_learning_rate", self.generator_lr))
         self.log_vars.append(("d_learning_rate", self.discriminator_lr))
 

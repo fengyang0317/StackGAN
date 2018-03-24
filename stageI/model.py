@@ -42,11 +42,8 @@ class CondGAN(object):
 
     # g-net
     def generate_condition(self, c_var):
-        conditions =\
-            (pt.wrap(c_var).
-             flatten().
-             custom_fully_connected(self.ef_dim * 2).
-             apply(leaky_rectify, leakiness=0.2))
+        conditions = slim.fully_connected(c_var, self.ef_dim * 2, activation_fn=tf.nn.leaky_relu,
+                                weights_initializer=tf.random_normal_initializer(stddev=0.02))
         mean = conditions[:, :self.ef_dim]
         log_sigma = conditions[:, self.ef_dim:]
         return [mean, log_sigma]
